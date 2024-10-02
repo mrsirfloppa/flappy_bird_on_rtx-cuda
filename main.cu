@@ -21,7 +21,7 @@ void clearScreen() {
 
 // CUDA Kernel to initialize cuRAND states
 __global__ void initCurand(unsigned int seed, curandState* states) {
-    int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    int idx = threadIdx.x;
     curand_init(seed, idx, 0, &states[idx]);  // Initialize cuRAND state for each thread
 }
 
@@ -52,13 +52,13 @@ __global__ void updatePipes(int* pipeX, int* pipeY, int pipeSpeed, curandState* 
     if (pipeX[idx] + PIPE_WIDTH < 0) {
         pipeX[idx] = SCREEN_WIDTH;
 
-        // Use cuRAND to generate random pipe Y position
+        // Randomly generate new pipe position on GPU using cuRAND
         int gap = curand(&states[idx]) % (SCREEN_HEIGHT - PIPE_GAP - 5);
         pipeY[idx] = gap + 2;  // Ensure the pipe doesn't go too low or too high
     }
 }
 
-// CUDA Kernel to check for collisions and update the score
+// Function to check for collision with pipes
 __global__ void checkCollisionAndScore(float birdY, int birdX, int* pipeX, int* pipeY, int* score, bool* collision) {
     int idx = threadIdx.x;
 
