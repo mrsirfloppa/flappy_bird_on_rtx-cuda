@@ -14,4 +14,3 @@ This is a **Flappy Bird** game that runs (mostly) on **NVIDIA GPUs** using **CUD
    cd flappy_bird_on_rtx-cuda
    nvcc -o flappy_bird_rtx main.cu -lcurand -luser32
    .\flappy_bird_rtx.exe
-```
