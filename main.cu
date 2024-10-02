@@ -58,20 +58,25 @@ __global__ void updatePipes(int* pipeX, int* pipeY, int pipeSpeed, curandState* 
     }
 }
 
-// Function to check for collision with pipes
-bool checkCollision(float birdY, int birdX, int* pipeX, int* pipeY) {
-    for (int i = 0; i < 2; i++) {
-        if (pipeX[i] == birdX) {  // Check if bird is in line with a pipe
-            if (birdY < pipeY[i] || birdY > (pipeY[i] + PIPE_GAP)) {
-                return true;  // Collision with upper or lower pipe
-            }
+// CUDA Kernel to check for collisions and update the score
+__global__ void checkCollisionAndScore(float birdY, int birdX, int* pipeX, int* pipeY, int* score, bool* collision) {
+    int idx = threadIdx.x;
+
+    // Check if bird is in line with a pipe
+    if (pipeX[idx] == birdX) {
+        if (birdY < pipeY[idx] || birdY > (pipeY[idx] + PIPE_GAP)) {
+            *collision = true;  // Collision with pipe
         }
     }
-    return false;
+
+    // Increase score when bird passes a pipe
+    if (pipeX[idx] == birdX - 1 && !(*collision)) {
+        atomicAdd(score, 1);  // Increment score using atomic addition
+    }
 }
 
-// Function to render the game in the console
-void renderGame(float birdY, int* pipeX, int* pipeY) {
+// Function to render the game in the console, including the score
+void renderGame(float birdY, int* pipeX, int* pipeY, int score) {
     char screen[SCREEN_HEIGHT][SCREEN_WIDTH + 1];  // Screen buffer, +1 for null terminator
     
     // Initialize screen with spaces
@@ -111,6 +116,9 @@ void renderGame(float birdY, int* pipeX, int* pipeY) {
     for (int y = 0; y < SCREEN_HEIGHT; y++) {
         printf("%s\n", screen[y]);
     }
+
+    // Print the score
+    printf("\nScore: %d\n", score);
 }
 
 int main() {
@@ -145,13 +153,22 @@ int main() {
     cudaMemcpy(d_pipeX, pipeX, 2 * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_pipeY, pipeY, 2 * sizeof(int), cudaMemcpyHostToDevice);
 
+    // Score and collision variables
+    int score = 0;
+    bool collision = false;
+    int* d_score;
+    bool* d_collision;
+    cudaMalloc((void**)&d_score, sizeof(int));
+    cudaMalloc((void**)&d_collision, sizeof(bool));
+
+    cudaMemcpy(d_score, &score, sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_collision, &collision, sizeof(bool), cudaMemcpyHostToDevice);
+
     // cuRAND setup
     curandState* d_states;
     cudaMalloc((void**)&d_states, 2 * sizeof(curandState));
     initCurand<<<1, 2>>>(time(NULL), d_states);
     cudaDeviceSynchronize();
-
-    bool collision = false;
 
     // Game loop (simplified, with user input for jumping)
     for (int frame = 0; frame < 500 && !collision; ++frame) {
@@ -169,23 +186,26 @@ int main() {
         updatePipes<<<1, 2>>>(d_pipeX, d_pipeY, pipeSpeed, d_states);
         cudaDeviceSynchronize();
 
+        // Check for collision and update score
+        checkCollisionAndScore<<<1, 2>>>(birdY, 5, d_pipeX, d_pipeY, d_score, d_collision);
+        cudaDeviceSynchronize();
+
         // Copy updated bird and pipes back to host
         cudaMemcpy(&birdY, d_birdY, sizeof(float), cudaMemcpyDeviceToHost);
         cudaMemcpy(pipeX, d_pipeX, 2 * sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(pipeY, d_pipeY, 2 * sizeof(int), cudaMemcpyDeviceToHost);
-
-        // Check for collision
-        collision = checkCollision(birdY, 5, pipeX, pipeY);
-        if (collision) {
-            printf("Game Over! You collided with a pipe.\n");
-            break;
-        }
+        cudaMemcpy(&score, d_score, sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&collision, d_collision, sizeof(bool), cudaMemcpyDeviceToHost);
 
         // Render game to the console
-        renderGame(birdY, pipeX, pipeY);
+        renderGame(birdY, pipeX, pipeY, score);
 
         // Sleep to slow down the game loop (in milliseconds)
         Sleep(100);  // 100 ms delay for each frame to make the game playable
+    }
+
+    if (collision) {
+        printf("Game Over! Final Score: %d\n", score);
     }
 
     // Free memory
@@ -194,6 +214,8 @@ int main() {
     cudaFree(d_isJumping);
     cudaFree(d_pipeX);
     cudaFree(d_pipeY);
+    cudaFree(d_score);
+    cudaFree(d_collision);
     cudaFree(d_states);
 
     return 0;
