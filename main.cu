@@ -3,7 +3,7 @@
 #include <curand_kernel.h>
 #include <stdio.h>
 #include <cstdlib>
-#include <windows.h>  // For Sleep() and clearing the console
+#include <windows.h>  // For Sleep(), GetAsyncKeyState(), and clearing the console
 
 #define SCREEN_WIDTH 40   // Width of the console display
 #define SCREEN_HEIGHT 20  // Height of the console display
@@ -139,8 +139,14 @@ int main() {
     initCurand<<<1, 2>>>(time(NULL), d_states);
     cudaDeviceSynchronize();
 
-    // Game loop (simplified, no user input)
+    // Game loop (simplified, with user input for jumping)
     for (int frame = 0; frame < 500; ++frame) {
+        // Check for user input (spacebar jump)
+        if (GetAsyncKeyState(VK_SPACE) & 0x8000) {
+            isJumping = true;  // Set jump flag when spacebar is pressed
+            cudaMemcpy(d_isJumping, &isJumping, sizeof(bool), cudaMemcpyHostToDevice);
+        }
+
         // Update bird
         updateBird<<<1, 1>>>(d_birdY, d_birdVelocity, d_isJumping);
         cudaDeviceSynchronize();
@@ -153,9 +159,6 @@ int main() {
         cudaMemcpy(&birdY, d_birdY, sizeof(float), cudaMemcpyDeviceToHost);
         cudaMemcpy(pipeX, d_pipeX, 2 * sizeof(int), cudaMemcpyDeviceToHost);
         cudaMemcpy(pipeY, d_pipeY, 2 * sizeof(int), cudaMemcpyDeviceToHost);
-
-        // Print positions for debugging
-        printf("Frame: %d, Bird Y: %.2f, Pipe 1 X: %d, Pipe 2 X: %d\n", frame, birdY, pipeX[0], pipeX[1]);
 
         // Render game to the console
         renderGame(birdY, pipeX, pipeY);
